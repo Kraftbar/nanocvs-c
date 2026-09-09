@@ -1,0 +1,32 @@
+You are operating around `nanocvs-c`.
+
+Treat `nanocvs-c` as:
+- a small Fossil-inspired local history tracker
+- a single SQLite repository of scanned file states and immutable change events
+- a low-level primitive for `scan`, `log`, `cat`, `restore`, `revert`, and `diff`
+
+Do not treat it as:
+- Git
+- a commit/branch/merge system
+- a remote-sync tool
+- a staging/index workflow
+
+Important model rules:
+- `scan` records changes under compiled tracked roots from `config.h`
+- `config.json` is not authoritative in the current implementation
+- `log` prints change-event ids like `[12]`; those ids are the main revision handles
+- `REV^` means the before-side of a change event
+- `restore` and `diff` operate on stored event history, not live working-tree diffs
+- prefer describing it as a local history / rollback primitive, not a full VCS
+
+Recommended LLM behavior:
+- use `status` to inspect overall repository state
+- use `log` to find relevant change-event ids
+- use `cat`, `diff`, and `restore` with explicit path + revision values
+- be explicit when recommending destructive actions like `restore` or `revert`
+- keep AI behavior outside the core tool when possible; use wrapper/hook scripts instead of inventing built-in AI semantics
+
+Current milestone:
+- this is `v0.1`
+- host-bound, Linux-oriented
+- database lives beside the built binary as `nanocvs.db`

@@ -1,0 +1,235 @@
+--- db.c.old	2026-04-03 22:34:59.937723200 +0200
++++ db.c	2026-04-03 21:59:08.870354218 +0200
+@@ -125,11 +125,16 @@
+     return NANOCVS_OK;
+ }
+ 
+-int cmd_status(void) {
++int cmd_status(int argc, char **argv) {
+     sqlite3 *db = NULL;
+     sqlite3_stmt *stmt = NULL;
+     sqlite3_stmt *stmt2 = NULL;
+     int tracked = 0, existing = 0, total_changes = 0;
++    int i, is_json = 0;
++
++    for (i = 1; i < argc; ++i) {
++        if (strcmp(argv[i], "--json") == 0) is_json = 1;
++    }
+ 
+     if (db_open(&db) != NANOCVS_OK) return NANOCVS_ERR;
+ 
+@@ -149,23 +154,44 @@
+         total_changes = sqlite3_column_int(stmt, 0);
+     }
+     sqlite3_finalize(stmt);
++    stmt = NULL;
+ 
+-    printf("db: %s\n", nanocvs_db_path);
+-    printf("tracked paths: %d\n", tracked);
+-    printf("existing now: %d\n", existing);
+-    printf("total changes: %d\n", total_changes);
+-
+-    if (sqlite3_prepare_v2(db,
+-        "SELECT id, started_at, finished_at, files_seen, changes_found FROM scan_run ORDER BY id DESC LIMIT 1",
+-        -1, &stmt2, NULL) == SQLITE_OK && sqlite3_step(stmt2) == SQLITE_ROW) {
+-        printf("last scan: id=%lld started=%s finished=%s files_seen=%d changes_found=%d\n",
+-            (long long)sqlite3_column_int64(stmt2, 0),
+-            (const char *)sqlite3_column_text(stmt2, 1),
+-            sqlite3_column_text(stmt2, 2) ? (const char *)sqlite3_column_text(stmt2, 2) : "(null)",
+-            sqlite3_column_int(stmt2, 3),
+-            sqlite3_column_int(stmt2, 4));
++    if (is_json) {
++        printf("{\n");
++        printf("  \"db_path\": \"%s\",\n", nanocvs_db_path);
++        printf("  \"tracked_paths\": %d,\n", tracked);
++        printf("  \"existing_now\": %d,\n", existing);
++        printf("  \"total_changes\": %d", total_changes);
++        if (sqlite3_prepare_v2(db,
++            "SELECT id, started_at, finished_at, files_seen, changes_found FROM scan_run ORDER BY id DESC LIMIT 1",
++            -1, &stmt2, NULL) == SQLITE_OK && sqlite3_step(stmt2) == SQLITE_ROW) {
++            printf(",\n  \"last_scan\": {\n");
++            printf("    \"id\": " SQLITE_INT64_PRINTF ",\n", SQLITE_INT64_ARG(sqlite3_column_int64(stmt2, 0)));
++            printf("    \"started_at\": \"%s\",\n", (const char *)sqlite3_column_text(stmt2, 1));
++            printf("    \"finished_at\": \"%s\",\n", sqlite3_column_text(stmt2, 2) ? (const char *)sqlite3_column_text(stmt2, 2) : "null");
++            printf("    \"files_seen\": %d,\n", sqlite3_column_int(stmt2, 3));
++            printf("    \"changes_found\": %d\n", sqlite3_column_int(stmt2, 4));
++            printf("  }");
++        }
++        printf("\n}\n");
+     } else {
+-        printf("last scan: none\n");
++        printf("db: %s\n", nanocvs_db_path);
++        printf("tracked paths: %d\n", tracked);
++        printf("existing now: %d\n", existing);
++        printf("total changes: %d\n", total_changes);
++
++        if (sqlite3_prepare_v2(db,
++            "SELECT id, started_at, finished_at, files_seen, changes_found FROM scan_run ORDER BY id DESC LIMIT 1",
++            -1, &stmt2, NULL) == SQLITE_OK && sqlite3_step(stmt2) == SQLITE_ROW) {
++            printf("last scan: id=%lld started=%s finished=%s files_seen=%d changes_found=%d\n",
++                (long long)sqlite3_column_int64(stmt2, 0),
++                (const char *)sqlite3_column_text(stmt2, 1),
++                sqlite3_column_text(stmt2, 2) ? (const char *)sqlite3_column_text(stmt2, 2) : "(null)",
++                sqlite3_column_int(stmt2, 3),
++                sqlite3_column_int(stmt2, 4));
++        } else {
++            printf("last scan: none\n");
++        }
+     }
+     sqlite3_finalize(stmt2);
+     sqlite3_close(db);
+--- history.c.old	2026-04-03 22:34:59.939393691 +0200
++++ history.c	2026-04-03 22:07:56.153291654 +0200
+@@ -11,10 +11,11 @@
+     return NANOCVS_OK;
+ }
+ 
+-static int parse_log_args(int argc, char **argv, int *limit_out, const char **path_out) {
++static int parse_log_args(int argc, char **argv, int *limit_out, const char **path_out, int *json_out) {
+     int i;
+     int limit = 20;
+     const char *path = NULL;
++    int is_json = 0;
+     for (i = 2; i < argc; ++i) {
+         if (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--limit") == 0) {
+             if (i + 1 >= argc || parse_positive_int(argv[i + 1], &limit) != NANOCVS_OK) return NANOCVS_ERR;
+@@ -22,6 +23,8 @@
+         } else if (strcmp(argv[i], "--path") == 0) {
+             if (i + 1 >= argc || path) return NANOCVS_ERR;
+             path = argv[++i];
++        } else if (strcmp(argv[i], "--json") == 0) {
++            is_json = 1;
+         } else if (argv[i][0] == '-') {
+             return NANOCVS_ERR;
+         } else {
+@@ -31,6 +34,7 @@
+     }
+     *limit_out = limit;
+     *path_out = path;
++    *json_out = is_json;
+     return NANOCVS_OK;
+ }
+ 
+@@ -67,6 +71,16 @@
+     else printf(SQLITE_INT64_PRINTF, SQLITE_INT64_ARG(sqlite3_column_int64(stmt, col)));
+ }
+ 
++static void print_json_int_or_null(sqlite3_stmt *stmt, int col) {
++    if (sqlite3_column_type(stmt, col) == SQLITE_NULL) printf("null");
++    else printf("%d", sqlite3_column_int(stmt, col));
++}
++
++static void print_json_i64_or_null(sqlite3_stmt *stmt, int col) {
++    if (sqlite3_column_type(stmt, col) == SQLITE_NULL) printf("null");
++    else printf(SQLITE_INT64_PRINTF, SQLITE_INT64_ARG(sqlite3_column_int64(stmt, col)));
++}
++
+ int cmd_log(int argc, char **argv) {
+     sqlite3 *db = NULL;
+     sqlite3_stmt *stmt = NULL;
+@@ -74,8 +88,9 @@
+     int rows = 0;
+     int limit = 20;
+     const char *path = NULL;
++    int is_json = 0;
+     if (argc == 3 && (strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0)) {
+-        printf("Usage: %s log [-n N|--limit N] [--path RELPATH|RELPATH]\n", argv[0]);
++        printf("Usage: %s log [-n N|--limit N] [--path RELPATH|RELPATH] [--json]\n", argv[0]);
+         printf("Show recent change events.\n");
+         return NANOCVS_OK;
+     }
+@@ -95,8 +110,8 @@
+         "ORDER BY ce.ts DESC, ce.id DESC "
+         "LIMIT ?2";
+ 
+-    if (parse_log_args(argc, argv, &limit, &path) != NANOCVS_OK) {
+-        fprintf(stderr, "Usage: %s log [-n N|--limit N] [--path RELPATH|RELPATH]\n", argv[0]);
++    if (parse_log_args(argc, argv, &limit, &path, &is_json) != NANOCVS_OK) {
++        fprintf(stderr, "Usage: %s log [-n N|--limit N] [--path RELPATH|RELPATH] [--json]\n", argv[0]);
+         fprintf(stderr, "Try '%s help log' for details.\n", argv[0]);
+         return NANOCVS_ERR;
+     }
+@@ -118,26 +133,47 @@
+         return NANOCVS_ERR;
+     }
+ 
++    if (is_json) printf("[\n");
++
+     while (sqlite3_step(stmt) == SQLITE_ROW) {
+-        printf("[" SQLITE_INT64_PRINTF "] %s %s %s lines ",
+-            SQLITE_INT64_ARG(sqlite3_column_int64(stmt, 0)),
+-            sqlite3_column_text(stmt, 1) ? (const char *)sqlite3_column_text(stmt, 1) : "?",
+-            sqlite3_column_text(stmt, 2) ? (const char *)sqlite3_column_text(stmt, 2) : "?",
+-            sqlite3_column_text(stmt, 3) ? (const char *)sqlite3_column_text(stmt, 3) : "?");
+-        print_int_or_dash(stmt, 4);
+-        printf("->");
+-        print_int_or_dash(stmt, 5);
+-        printf(" (+%d -%d) bytes ", sqlite3_column_int(stmt, 6), sqlite3_column_int(stmt, 7));
+-        print_i64_or_dash(stmt, 8);
+-        printf("->");
+-        print_i64_or_dash(stmt, 9);
+-        printf(" scan=" SQLITE_INT64_PRINTF "\n", SQLITE_INT64_ARG(sqlite3_column_int64(stmt, 10)));
++        if (is_json) {
++            if (rows > 0) printf(",\n");
++            printf("  {\n");
++            printf("    \"id\": " SQLITE_INT64_PRINTF ",\n", SQLITE_INT64_ARG(sqlite3_column_int64(stmt, 0)));
++            printf("    \"ts\": \"%s\",\n", (const char *)sqlite3_column_text(stmt, 1));
++            printf("    \"action\": \"%s\",\n", (const char *)sqlite3_column_text(stmt, 2));
++            printf("    \"relpath\": \"%s\",\n", (const char *)sqlite3_column_text(stmt, 3));
++            printf("    \"lines_before\": "); print_json_int_or_null(stmt, 4); printf(",\n");
++            printf("    \"lines_after\": "); print_json_int_or_null(stmt, 5); printf(",\n");
++            printf("    \"lines_added\": %d,\n", sqlite3_column_int(stmt, 6));
++            printf("    \"lines_deleted\": %d,\n", sqlite3_column_int(stmt, 7));
++            printf("    \"bytes_before\": "); print_json_i64_or_null(stmt, 8); printf(",\n");
++            printf("    \"bytes_after\": "); print_json_i64_or_null(stmt, 9); printf(",\n");
++            printf("    \"scan_id\": " SQLITE_INT64_PRINTF "\n", SQLITE_INT64_ARG(sqlite3_column_int64(stmt, 10)));
++            printf("  }");
++        } else {
++            printf("[" SQLITE_INT64_PRINTF "] %s %s %s lines ",
++                SQLITE_INT64_ARG(sqlite3_column_int64(stmt, 0)),
++                sqlite3_column_text(stmt, 1) ? (const char *)sqlite3_column_text(stmt, 1) : "?",
++                sqlite3_column_text(stmt, 2) ? (const char *)sqlite3_column_text(stmt, 2) : "?",
++                sqlite3_column_text(stmt, 3) ? (const char *)sqlite3_column_text(stmt, 3) : "?");
++            print_int_or_dash(stmt, 4);
++            printf("->");
++            print_int_or_dash(stmt, 5);
++            printf(" (+%d -%d) bytes ", sqlite3_column_int(stmt, 6), sqlite3_column_int(stmt, 7));
++            print_i64_or_dash(stmt, 8);
++            printf("->");
++            print_i64_or_dash(stmt, 9);
++            printf(" scan=" SQLITE_INT64_PRINTF "\n", SQLITE_INT64_ARG(sqlite3_column_int64(stmt, 10)));
++        }
+         rows++;
+     }
+ 
++    if (is_json) printf("\n]\n");
++
+     sqlite3_finalize(stmt);
+     sqlite3_close(db);
+-    if (rows == 0) {
++    if (rows == 0 && !is_json) {
+         if (path) printf("no history for %s\n", path);
+         else printf("no history\n");
+     }
+--- main.c.old	2026-04-03 22:34:59.941063810 +0200
++++ main.c	2026-04-03 21:58:36.947237055 +0200
+@@ -17,7 +17,7 @@
+     return NANOCVS_OK;
+ }
+ static int cmd_init_wrap(int argc, char **argv) { (void)argc; (void)argv; return cmd_init(); }
+-static int cmd_status_wrap(int argc, char **argv) { (void)argc; (void)argv; return cmd_status(); }
++static int cmd_status_wrap(int argc, char **argv) { return cmd_status(argc, argv); }
+ static int cmd_scan_wrap(int argc, char **argv) { return cmd_scan(argc, argv); }
+ static int cmd_log_wrap(int argc, char **argv) { return cmd_log(argc, argv); }
+ static int cmd_week_wrap(int argc, char **argv) { return cmd_week(argc, argv); }
+--- nanocvs.h.old	2026-04-03 22:34:59.942746055 +0200
++++ nanocvs.h	2026-04-03 21:58:22.649184587 +0200
+@@ -35,7 +35,7 @@
+ extern const char *NANOCVS_SCHEMA;
+ 
+ int cmd_init(void);
+-int cmd_status(void);
++int cmd_status(int argc, char **argv);
+ int cmd_scan(int argc, char **argv);
+ int cmd_log(int argc, char **argv);
+ int cmd_week(int argc, char **argv);

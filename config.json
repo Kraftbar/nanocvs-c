@@ -1,0 +1,6 @@
+{
+  "tracked_roots": [
+    "/var/www/html",
+    "/home/nybo/.nanobot/workspace/nanobot-web-sidecar"
+  ]
+}

@@ -1,0 +1,14 @@
+# Local SQLite history and sidecars
+*.db
+*.db-*
+
+# Generated configuration and build products
+/config.h
+/nanocvs-c
+/sqlite_test
+*.o
+*.tmp
+
+# Local assistant state
+.claude/
+.codex/

@@ -1,0 +1,99 @@
+--- nanocvs.h	2026-04-03 16:46:17.729957029 +0200
++++ nanocvs.h	2026-04-03 16:48:44.911733671 +0200
+@@ -36,7 +36,7 @@
+ 
+ int cmd_init(void);
+ int cmd_status(void);
+-int cmd_scan(void);
++int cmd_scan(int argc, char **argv);
+ int cmd_log(int argc, char **argv);
+ int cmd_week(int argc, char **argv);
+ int cmd_cat(int argc, char **argv);
+--- db.c	2026-04-03 15:39:50.507210813 +0200
++++ db.c	2026-04-03 16:47:54.335875374 +0200
+@@ -24,7 +24,8 @@
+     " finished_at TEXT,"
+     " roots_json TEXT NOT NULL,"
+     " files_seen INTEGER NOT NULL DEFAULT 0,"
+-    " changes_found INTEGER NOT NULL DEFAULT 0"
++    " changes_found INTEGER NOT NULL DEFAULT 0,"
++    " tag TEXT"
+     ");"
+     "CREATE TABLE IF NOT EXISTS change_event ("
+     " id INTEGER PRIMARY KEY,"
+--- scan.c	2026-04-03 16:46:12.731972503 +0200
++++ scan.c	2026-04-03 16:48:28.738020122 +0200
+@@ -36,15 +36,16 @@
+     free(s->items);
+ }
+ 
+-static int insert_scan_run(sqlite3 *db, const char *started_at, const char *roots_json, sqlite3_int64 *scan_id) {
++static int insert_scan_run(sqlite3 *db, const char *started_at, const char *roots_json, const char *tag, sqlite3_int64 *scan_id) {
+     sqlite3_stmt *stmt = NULL;
+     int rc;
+     rc = sqlite3_prepare_v2(db,
+-        "INSERT INTO scan_run(started_at, roots_json, files_seen, changes_found) VALUES(?,?,0,0)",
++        "INSERT INTO scan_run(started_at, roots_json, files_seen, changes_found, tag) VALUES(?,?,0,0,?)",
+         -1, &stmt, NULL);
+     if (rc != SQLITE_OK) return NANOCVS_ERR;
+     sqlite3_bind_text(stmt, 1, started_at, -1, SQLITE_TRANSIENT);
+     sqlite3_bind_text(stmt, 2, roots_json, -1, SQLITE_TRANSIENT);
++    if (tag && *tag) sqlite3_bind_text(stmt, 3, tag, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(stmt, 3);
+     rc = sqlite3_step(stmt);
+     sqlite3_finalize(stmt);
+     if (rc != SQLITE_DONE) return NANOCVS_ERR;
+@@ -397,7 +398,7 @@
+     return NANOCVS_OK;
+ }
+ 
+-int cmd_scan(void) {
++int cmd_scan(int argc, char **argv) {
+     sqlite3 *db = NULL;
+     const char **roots = NULL;
+     int root_count = 0;
+@@ -410,6 +411,13 @@
+     int changes_found = 0;
+     SeenList seen = {0};
+     sqlite3_stmt *stmt = NULL;
++    const char *tag = NULL;
++
++    for (i = 1; i < argc; ++i) {
++        if (strcmp(argv[i], "--tag") == 0 && i + 1 < argc) {
++            tag = argv[++i];
++        }
++    }
+ 
+     read_config_roots(&roots, &root_count);
+     roots_json = json_quote_roots((char **)roots, root_count);
+@@ -417,7 +425,7 @@
+     if (!roots_json || !started_at) goto fail;
+     if (db_open(&db) != NANOCVS_OK) goto fail;
+     if (db_exec(db, "BEGIN IMMEDIATE") != NANOCVS_OK) goto fail;
+-    if (insert_scan_run(db, started_at, roots_json, &scan_id) != NANOCVS_OK) goto fail;
++    if (insert_scan_run(db, started_at, roots_json, tag, &scan_id) != NANOCVS_OK) goto fail;
+ 
+     for (i = 0; i < root_count; ++i) {
+         struct stat st;
+@@ -440,7 +448,10 @@
+     stmt = NULL;
+     if (db_exec(db, "COMMIT") != NANOCVS_OK) goto fail;
+ 
+-    printf("scan %lld: files_seen=%d changes_found=%d\n", (long long)scan_id, files_seen, changes_found);
++    if (tag && *tag)
++        printf("scan %lld: tag=%s files_seen=%d changes_found=%d\n", (long long)scan_id, tag, files_seen, changes_found);
++    else
++        printf("scan %lld: files_seen=%d changes_found=%d\n", (long long)scan_id, files_seen, changes_found);
+     sqlite3_close(db);
+     free(roots_json);
+     free(started_at);
+--- main.c	2026-04-03 15:39:21.304962418 +0200
++++ main.c	2026-04-03 16:49:07.338864006 +0200
+@@ -11,7 +11,7 @@
+ 
+ static int cmd_init_wrap(int argc, char **argv) { (void)argc; (void)argv; return cmd_init(); }
+ static int cmd_status_wrap(int argc, char **argv) { (void)argc; (void)argv; return cmd_status(); }
+-static int cmd_scan_wrap(int argc, char **argv) { (void)argc; (void)argv; return cmd_scan(); }
++static int cmd_scan_wrap(int argc, char **argv) { return cmd_scan(argc, argv); }
+ static int cmd_log_wrap(int argc, char **argv) { return cmd_log(argc, argv); }
+ static int cmd_week_wrap(int argc, char **argv) { return cmd_week(argc, argv); }
+ static int cmd_cat_wrap(int argc, char **argv) { return cmd_cat(argc, argv); }
