@@ -94,6 +94,32 @@ Edit `web/cvs.php` in the checkout and commit/push those edits rather than
 creating another deployed copy. The existing LOQ setup is documented in
 [RECOVERY.md](RECOVERY.md).
 
+## CLI updates on LOQ
+
+Build and edit C source in `~/github/nanocvs-c`. The old source files under
+`~/services/nanocvs-c` are retained recovery copies, no longer the build source.
+Keep the executable installed there: it finds `nanocvs.db` beside itself,
+so symlinking the executable into the checkout would change its database path.
+
+Once, copy the existing local roots configuration into the checkout:
+
+```sh
+cp -n "$HOME/services/nanocvs-c/config.h" "$HOME/github/nanocvs-c/config.h"
+```
+
+After committing/pushing source updates from the desktop, on LOQ run:
+
+```sh
+git -C "$HOME/github/nanocvs-c" pull --ff-only
+"$HOME/github/nanocvs-c/install-loq.sh"
+```
+
+The installer performs a clean build with the checkout's ignored `config.h`,
+saves the previous executable under `~/.local/state/nanocvs-c/`, and atomically
+replaces the service executable. It does not copy, initialize or scan the
+database. The next CLI invocation or PHP request uses the new executable.
+Pulling alone updates PHP; run the installer to update the compiled CLI too.
+
 ## Command overview
 
 ```sh

@@ -22,3 +22,9 @@ installation. The live `/var/www/html/cvs.php` is symlinked to
 The previous standalone page is retained outside the web root at
 `~/.local/state/repo-recovery/nanocvs-20260909/cvs.php.before-symlink`.
 The binary and history database remain at their original service paths.
+
+CLI builds now use the Git checkout via `install-loq.sh`. LOQ's original
+`config.h` is copied unchanged into the checkout (ignored by Git); old source
+files in the service directory remain preserved but are no longer authoritative.
+The installer retains the previous binary and replaces only the executable,
+preserving the existing database path. See the README's CLI update commands.
