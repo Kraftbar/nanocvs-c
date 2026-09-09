@@ -17,6 +17,8 @@ Recovery validation uses a separate disposable build, scratch tracked directory
 and fresh database; it does not scan or restore the live server's files.
 
 The PHP browser's binary/database paths are currently fixed to the LOQ
-installation. `web/cvs.php` is the versioned source; deploying that file to
-`/var/www/html/cvs.php` is a separate operation. Merely cloning this repository
-does not replace the running binary, web page or history database.
+installation. The live `/var/www/html/cvs.php` is symlinked to
+`/home/nybo/github/nanocvs-c/web/cvs.php`; future pulls update that page directly.
+The previous standalone page is retained outside the web root at
+`~/.local/state/repo-recovery/nanocvs-20260909/cvs.php.before-symlink`.
+The binary and history database remain at their original service paths.

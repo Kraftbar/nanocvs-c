@@ -71,6 +71,29 @@ Run the host-local smoke test:
 
 The smoke script writes, modifies, restores, and deletes a real temporary file under the compiled tracked roots and uses `/tmp` for scratch outputs. Only run it where that tracked location is safe for test writes.
 
+## PHP browser on LOQ
+
+Keep the served page linked to the Git checkout so it updates with a pull.
+Clone this repository to `~/github/nanocvs-c`, preserve any changes in an existing
+`/var/www/html/cvs.php`, then link it:
+
+```sh
+ln -sfn "$HOME/github/nanocvs-c/web/cvs.php" /var/www/html/cvs.php
+```
+
+Update the checkout with:
+
+```sh
+git -C "$HOME/github/nanocvs-c" pull --ff-only
+```
+
+The web server must be able to read the checkout and follow the symlink. This
+links only the PHP browser; its configured binary and database remain at
+`/home/nybo/services/nanocvs-c`. Pulling updates the live page immediately.
+Edit `web/cvs.php` in the checkout and commit/push those edits rather than
+creating another deployed copy. The existing LOQ setup is documented in
+[RECOVERY.md](RECOVERY.md).
+
 ## Command overview
 
 ```sh
